@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Production build output
+dist/
+
+# Configuration and secrets
+config.json
+.env
+
+# Local database files
+dev.db
+dev.db-journal
+dev.db-shm
+dev.db-wal
+calendar_db.json
+
+# Generated newsletter/email digests
+digests/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS metadata
+.DS_Store
+Thumbs.db

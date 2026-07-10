@@ -1,0 +1,47 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id              String    @id @default(uuid())
+  discordId       String?   @unique
+  discordUsername String    @unique
+  webhookUrl      String?
+  interests       String
+  noise           String
+  frequency       String    @default("daily")
+  lastSentAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  profiles        Profile[]
+  sources         Source[]
+}
+
+model Profile {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String   // "twitter", "linkedin", "leetcode", "github", etc.
+  handle    String   // Username/handle on the platform
+  url       String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, platform])
+}
+
+model Source {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // "subreddit", "rss"
+  value     String   // e.g. "typescript" or "https://news.ycombinator.com/rss"
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type, value])
+}
