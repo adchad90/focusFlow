@@ -2,6 +2,7 @@ import { loadConfig } from './config.js';
 import { runOrchestrator } from './orchestrator.js';
 import { startMcpServer } from './mcp/server.js';
 import { startDiscordBot } from './discord/bot.js';
+import { startWebServer } from './server.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -13,6 +14,36 @@ async function main() {
   if (args.includes('--server')) {
     console.log("[FocusFlow CLI] Starting Custom MCP Server...");
     await startMcpServer();
+    return;
+  }
+
+  if (args.includes('--web')) {
+    console.log("[FocusFlow CLI] Starting FocusFlow Web Dashboard & Daemon...");
+    
+    // Start Discord Bot in background if configured
+    try {
+      await startDiscordBot(config);
+    } catch (err: any) {
+      console.error("[FocusFlow CLI] Failed to initialize Discord Bot:", err.message);
+    }
+
+    // Start Web Server (serves UI and API)
+    startWebServer(config);
+
+    // If daemon mode is also requested, schedule curation
+    if (args.includes('--daemon')) {
+      const hours = 6;
+      console.log(`[FocusFlow CLI] Background curation cycle scheduled for every ${hours} hours.`);
+      const intervalMs = hours * 60 * 60 * 1000;
+      setInterval(async () => {
+        console.log(`\n[FocusFlow Daemon] Starting scheduled curation cycle...`);
+        try {
+          await runOrchestrator(workspaceDir, config, false);
+        } catch (err: any) {
+          console.error("[FocusFlow Daemon] Curation error:", err.message);
+        }
+      }, intervalMs);
+    }
     return;
   }
 

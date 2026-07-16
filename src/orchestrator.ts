@@ -6,6 +6,7 @@ import { FocusConfig } from './config.js';
 import { GoogleGenAI } from '@google/genai';
 import { fetchProfileActivity } from './profileFetchers.js';
 import { discordBotClient } from './discord/bot.js';
+import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
 
 const prisma = new PrismaClient();
 
@@ -206,6 +207,33 @@ export async function runOrchestratorForUser(userId: string, config: FocusConfig
   let filtered: FilteredItem[] = [];
   const apiKey = config.GEMINI_API_KEY;
 
+  // Retrieve user feedback context for LLM prompt reinforcement
+  const positiveFeedback = await prisma.feedback.findMany({
+    where: { userId: user.id, rating: { gte: 8 } },
+    take: 5,
+    include: { curation: true }
+  });
+
+  const negativeFeedback = await prisma.feedback.findMany({
+    where: { userId: user.id, rating: { lte: 4 } },
+    take: 5,
+    include: { curation: true }
+  });
+
+  let feedbackPromptContext = '';
+  if (positiveFeedback.length > 0) {
+    feedbackPromptContext += `\n### EXAMPLES OF RELEVANT CONTENT THE USER LIKED (Rating >= 8/10):\n`;
+    positiveFeedback.forEach(f => {
+      feedbackPromptContext += `- Title: "${f.curation.title}" (Source: ${f.curation.source}) -> User rated this: ${f.rating}/10\n`;
+    });
+  }
+  if (negativeFeedback.length > 0) {
+    feedbackPromptContext += `\n### EXAMPLES OF IRRELEVANT CONTENT/NOISE THE USER DISLIKED (Rating <= 4/10):\n`;
+    negativeFeedback.forEach(f => {
+      feedbackPromptContext += `- Title: "${f.curation.title}" (Source: ${f.curation.source}) -> User rated this: ${f.rating}/10\n`;
+    });
+  }
+
   const rulesText = `
 ## Topic Filters & Rules
 
@@ -214,6 +242,7 @@ ${user.interests}
 
 ### What is NOISE (Filter Out)
 ${user.noise}
+${feedbackPromptContext}
   `.trim();
 
   if (apiKey && apiKey !== "YOUR_GEMINI_API_KEY") {
@@ -239,6 +268,24 @@ ${user.noise}
   // Delivery: HIGH priority
   console.log(`[Delivery] Delivering ${highPriority.length} HIGH priority alerts.`);
   for (const item of highPriority) {
+    // Save curation to database first so we can attach a unique feedback ID
+    let curationId = '';
+    try {
+      const dbCuration = await prisma.curation.create({
+        data: {
+          userId: user.id,
+          title: item.title,
+          url: item.url,
+          source: item.source,
+          summary: item.summary,
+          priority: 'HIGH'
+        }
+      });
+      curationId = dbCuration.id;
+    } catch (dbErr: any) {
+      console.error(`[Orchestrator] Failed to save curation to database: ${dbErr.message}`);
+    }
+
     const desc = `**Summary:** ${item.summary}\n\n**Relevance:** ${item.reason}\n\n[Original Source](${item.url})`;
     
     // Attempt Direct Message via Discord Bot first, fall back to Webhooks
@@ -246,6 +293,29 @@ ${user.noise}
     if (discordBotClient && user.discordId) {
       try {
         const discordUser = await discordBotClient.users.fetch(user.discordId);
+
+        // Build 0-10 rating select menu options
+        const getLabelDescription = (score: number): string => {
+          if (score >= 9) return 'Excellent / Critical';
+          if (score >= 7) return 'Good / Relevant';
+          if (score >= 5) return 'Ok / Fair';
+          if (score >= 3) return 'Boring / Soft Noise';
+          return 'Unrelated / Spam';
+        };
+
+        const scoreOptions = Array.from({ length: 11 }, (_, i) => 
+          new StringSelectMenuOptionBuilder()
+            .setLabel(`${i}/10 - ${getLabelDescription(i)}`)
+            .setValue(String(i))
+        );
+
+        const selectMenu = new StringSelectMenuBuilder()
+          .setCustomId(`rate_curation_${curationId}`)
+          .setPlaceholder('Rate this recommendation...')
+          .addOptions(scoreOptions);
+
+        const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+
         await discordUser.send({
           embeds: [{
             title: item.title,
@@ -256,7 +326,8 @@ ${user.noise}
             footer: {
               text: `FocusFlow Priority: HIGH`
             }
-          }]
+          }],
+          components: curationId ? [row] : []
         });
         delivered = true;
         console.log(`[Delivery] Sent Discord DM to user ${user.discordUsername}`);

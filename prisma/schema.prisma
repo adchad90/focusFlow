@@ -21,6 +21,8 @@ model User {
 
   profiles        Profile[]
   sources         Source[]
+  curations       Curation[]
+  feedbacks       Feedback[]
 }
 
 model Profile {
@@ -44,4 +46,27 @@ model Source {
   createdAt DateTime @default(now())
 
   @@unique([userId, type, value])
+}
+
+model Curation {
+  id        String     @id @default(uuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  url       String
+  source    String     // e.g. "r/typescript"
+  summary   String
+  priority  String     // "HIGH" | "MEDIUM"
+  createdAt DateTime   @default(now())
+  feedback  Feedback?
+}
+
+model Feedback {
+  id         String   @id @default(uuid())
+  curationId String   @unique
+  curation   Curation @relation(fields: [curationId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating     Int      // Numerical score 0 to 10
+  createdAt  DateTime @default(now())
 }

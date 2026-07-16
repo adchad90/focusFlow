@@ -76,131 +76,164 @@ export async function startDiscordBot(config: FocusConfig) {
   });
 
   discordBotClient.on('interactionCreate', async (interaction: Interaction) => {
-    if (!interaction.isChatInputCommand()) return;
+    if (interaction.isChatInputCommand()) {
+      const { commandName, user } = interaction;
+      const discordUsername = user.tag;
+      const discordId = user.id;
 
-    const { commandName, user } = interaction;
-    const discordUsername = user.tag;
-    const discordId = user.id;
+      try {
+        if (commandName === 'register') {
+          const interests = interaction.options.getString('interests', true);
+          const noise = interaction.options.getString('noise', true);
+          const frequency = interaction.options.getString('frequency') || 'daily';
 
-    try {
-      if (commandName === 'register') {
-        const interests = interaction.options.getString('interests', true);
-        const noise = interaction.options.getString('noise', true);
-        const frequency = interaction.options.getString('frequency') || 'daily';
+          // Upsert user in database
+          const dbUser = await prisma.user.upsert({
+            where: { discordUsername },
+            update: { discordId, interests, noise, frequency },
+            create: { discordUsername, discordId, interests, noise, frequency }
+          });
 
-        // Upsert user in database
-        const dbUser = await prisma.user.upsert({
-          where: { discordUsername },
-          update: { discordId, interests, noise, frequency },
-          create: { discordUsername, discordId, interests, noise, frequency }
-        });
-
-        await interaction.reply({
-          content: `✅ Registered successfully! Your FocusFlow user ID is \`${dbUser.id}\`. You will receive **${frequency}** digests. Use \`/link\` to link accounts (like GitHub or LeetCode).`,
-          ephemeral: true
-        });
-      }
-
-      else if (commandName === 'link') {
-        // Check if user exists
-        const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
-        if (!dbUser) {
-          await interaction.reply({ content: '❌ You are not registered yet. Please run `/register` first.', ephemeral: true });
-          return;
+          await interaction.reply({
+            content: `✅ Registered successfully! Your FocusFlow user ID is \`${dbUser.id}\`. You will receive **${frequency}** digests. Use \`/link\` to link accounts (like GitHub or LeetCode).`,
+            ephemeral: true
+          });
         }
 
-        const platform = interaction.options.getString('platform', true).toLowerCase();
-        const handle = interaction.options.getString('handle', true);
-        let url = '';
-        if (platform === 'github') url = `https://github.com/${handle}`;
-        else if (platform === 'leetcode') url = `https://leetcode.com/${handle}/`;
-        else if (platform === 'twitter') url = `https://twitter.com/${handle}`;
-        else url = `https://${platform}.com/${handle}`;
+        else if (commandName === 'link') {
+          // Check if user exists
+          const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
+          if (!dbUser) {
+            await interaction.reply({ content: '❌ You are not registered yet. Please run `/register` first.', ephemeral: true });
+            return;
+          }
 
-        await prisma.profile.upsert({
-          where: {
-            userId_platform: {
-              userId: dbUser.id,
-              platform
-            }
-          },
-          update: { handle, url },
-          create: { userId: dbUser.id, platform, handle, url }
-        });
+          const platform = interaction.options.getString('platform', true).toLowerCase();
+          const handle = interaction.options.getString('handle', true);
+          let url = '';
+          if (platform === 'github') url = `https://github.com/${handle}`;
+          else if (platform === 'leetcode') url = `https://leetcode.com/${handle}/`;
+          else if (platform === 'twitter') url = `https://twitter.com/${handle}`;
+          else url = `https://${platform}.com/${handle}`;
 
-        await interaction.reply({
-          content: `✅ Linked **${platform}** profile \`${handle}\` to your FocusFlow account.`,
-          ephemeral: true
-        });
-      }
+          await prisma.profile.upsert({
+            where: {
+              userId_platform: {
+                userId: dbUser.id,
+                platform
+              }
+            },
+            update: { handle, url },
+            create: { userId: dbUser.id, platform, handle, url }
+          });
 
-      else if (commandName === 'update_interests') {
-        const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
-        if (!dbUser) {
-          await interaction.reply({ content: '❌ You are not registered yet. Please run `/register` first.', ephemeral: true });
-          return;
+          await interaction.reply({
+            content: `✅ Linked **${platform}** profile \`${handle}\` to your FocusFlow account.`,
+            ephemeral: true
+          });
         }
 
-        const interests = interaction.options.getString('interests', true);
-        const noise = interaction.options.getString('noise', true);
+        else if (commandName === 'update_interests') {
+          const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
+          if (!dbUser) {
+            await interaction.reply({ content: '❌ You are not registered yet. Please run `/register` first.', ephemeral: true });
+            return;
+          }
 
-        await prisma.user.update({
-          where: { id: dbUser.id },
-          data: { interests, noise }
-        });
+          const interests = interaction.options.getString('interests', true);
+          const noise = interaction.options.getString('noise', true);
 
-        await interaction.reply({
-          content: `✅ Curation interests updated successfully.`,
-          ephemeral: true
-        });
-      }
+          await prisma.user.update({
+            where: { id: dbUser.id },
+            data: { interests, noise }
+          });
 
-      else if (commandName === 'status') {
-        const dbUser = await prisma.user.findUnique({
-          where: { discordUsername },
-          include: { profiles: true, sources: true }
-        });
-
-        if (!dbUser) {
-          await interaction.reply({ content: '❌ You are not registered yet. Run `/register` to start.', ephemeral: true });
-          return;
+          await interaction.reply({
+            content: `✅ Curation interests updated successfully.`,
+            ephemeral: true
+          });
         }
 
-        const profilesStr = dbUser.profiles.length > 0
-          ? dbUser.profiles.map(p => `- **${p.platform}**: \`${p.handle}\``).join('\n')
-          : '*No profiles linked yet.*';
+        else if (commandName === 'status') {
+          const dbUser = await prisma.user.findUnique({
+            where: { discordUsername },
+            include: { profiles: true, sources: true }
+          });
 
-        const sourcesStr = dbUser.sources.length > 0
-          ? dbUser.sources.map(s => `- **${s.type}**: \`${s.value}\``).join('\n')
-          : '*No traditional feeds linked yet.*';
+          if (!dbUser) {
+            await interaction.reply({ content: '❌ You are not registered yet. Run `/register` to start.', ephemeral: true });
+            return;
+          }
 
-        await interaction.reply({
-          content: `👤 **FocusFlow Status for ${discordUsername}**\n\n**Frequency**: ${dbUser.frequency}\n**Last Run**: ${dbUser.lastSentAt ? dbUser.lastSentAt.toLocaleString() : 'Never'}\n\n**Linked Profiles**:\n${profilesStr}\n\n**Custom Feeds**:\n${sourcesStr}`,
-          ephemeral: true
-        });
-      }
+          const profilesStr = dbUser.profiles.length > 0
+            ? dbUser.profiles.map(p => `- **${p.platform}**: \`${p.handle}\``).join('\n')
+            : '*No profiles linked yet.*';
 
-      else if (commandName === 'trigger') {
-        const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
-        if (!dbUser) {
-          await interaction.reply({ content: '❌ You are not registered yet. Run `/register` to start.', ephemeral: true });
-          return;
+          const sourcesStr = dbUser.sources.length > 0
+            ? dbUser.sources.map(s => `- **${s.type}**: \`${s.value}\``).join('\n')
+            : '*No traditional feeds linked yet.*';
+
+          await interaction.reply({
+            content: `👤 **FocusFlow Status for ${discordUsername}**\n\n**Frequency**: ${dbUser.frequency}\n**Last Run**: ${dbUser.lastSentAt ? dbUser.lastSentAt.toLocaleString() : 'Never'}\n\n**Linked Profiles**:\n${profilesStr}\n\n**Custom Feeds**:\n${sourcesStr}`,
+            ephemeral: true
+          });
         }
 
-        await interaction.reply({ content: '⏳ Running curation cycle for your accounts now. You will receive updates shortly...', ephemeral: true });
+        else if (commandName === 'trigger') {
+          const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
+          if (!dbUser) {
+            await interaction.reply({ content: '❌ You are not registered yet. Run `/register` to start.', ephemeral: true });
+            return;
+          }
 
-        // Run in background so we don't timeout the interaction
-        const { runOrchestratorForUser } = await import('../orchestrator.js');
-        runOrchestratorForUser(dbUser.id, config, false).catch((err: any) => {
-          console.error(`[Discord Bot] Curation run failed for user ${dbUser.discordUsername}:`, err);
-        });
+          await interaction.reply({ content: '⏳ Running curation cycle for your accounts now. You will receive updates shortly...', ephemeral: true });
+
+          // Run in background so we don't timeout the interaction
+          const { runOrchestratorForUser } = await import('../orchestrator.js');
+          runOrchestratorForUser(dbUser.id, config, false).catch((err: any) => {
+            console.error(`[Discord Bot] Curation run failed for user ${dbUser.discordUsername}:`, err);
+          });
+        }
+      } catch (e: any) {
+        console.error('[Discord Bot] Interaction error:', e);
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp({ content: `❌ An error occurred: ${e.message}`, ephemeral: true });
+        } else {
+          await interaction.reply({ content: `❌ An error occurred: ${e.message}`, ephemeral: true });
+        }
       }
-    } catch (e: any) {
-      console.error('[Discord Bot] Interaction error:', e);
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ content: `❌ An error occurred: ${e.message}`, ephemeral: true });
-      } else {
-        await interaction.reply({ content: `❌ An error occurred: ${e.message}`, ephemeral: true });
+    } else if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('rate_curation_')) {
+        const curationId = interaction.customId.replace('rate_curation_', '');
+        const score = parseInt(interaction.values[0], 10);
+        const discordUsername = interaction.user.tag;
+
+        try {
+          const dbUser = await prisma.user.findUnique({ where: { discordUsername } });
+          if (!dbUser) {
+            await interaction.reply({ content: '❌ You must register first via `/register`.', ephemeral: true });
+            return;
+          }
+
+          // Save feedback in database
+          await prisma.feedback.upsert({
+            where: { curationId },
+            update: { rating: score },
+            create: { curationId, userId: dbUser.id, rating: score }
+          });
+
+          await interaction.reply({
+            content: `✅ Thanks! Rated this curation **${score}/10** to personalize your feed.`,
+            ephemeral: true
+          });
+        } catch (e: any) {
+          console.error('[Discord Bot] Failed to record feedback:', e);
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content: `❌ Failed to save feedback: ${e.message}`, ephemeral: true });
+          } else {
+            await interaction.reply({ content: `❌ Failed to save feedback: ${e.message}`, ephemeral: true });
+          }
+        }
       }
     }
   });

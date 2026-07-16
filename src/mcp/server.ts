@@ -9,6 +9,7 @@ import Parser from 'rss-parser';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getConfig } from '../config.js';
+import { FetchLayerReddit } from '@fetchlayer/reddit';
 
 // Setup file paths for mocks
 const WORKSPACE_DIR = process.cwd();
@@ -141,7 +142,38 @@ export async function executeToolAction(name: string, args: any): Promise<{ cont
         const subreddit = args?.subreddit as string;
         const limit = (args?.limit as number) || 10;
         
-        // Reddit requires a unique User-Agent to avoid 429 Too Many Requests errors.
+        const apiKey = config.REDDIT_FETCHLAYER_API;
+        if (apiKey && apiKey !== "YOUR_REDDIT_FETCHLAYER_API_KEY") {
+          console.log(`[Reddit Scraper] Querying r/${subreddit} via Fetchlayer...`);
+          try {
+            const reddit = new FetchLayerReddit({ apiKey });
+            const response = await reddit.getCommunityPosts({
+              subreddit,
+              limit,
+              sort: "hot"
+            });
+            
+            const posts = (response.items || []).map((item) => ({
+              title: item.title || "",
+              url: item.url || "",
+              permalink: item.permalink ? `https://reddit.com${item.permalink}` : "",
+              author: item.author || "unknown",
+              score: item.score || 0,
+              selftext: item.previewText || "",
+              num_comments: item.commentCount || 0,
+              subreddit: item.subreddit || subreddit
+            }));
+            
+            return {
+              content: [{ type: "text", text: JSON.stringify(posts, null, 2) }]
+            };
+          } catch (e: any) {
+            console.error(`[Reddit Scraper] Fetchlayer call failed: ${e.message}. Falling back to public anonymous API.`);
+          }
+        }
+
+        // Fallback to anonymous public API
+        console.log(`[Reddit Scraper] Querying r/${subreddit} via public anonymous API fallback...`);
         const url = `https://www.reddit.com/r/${subreddit}/hot.json?limit=${limit}`;
         const response = await axios.get(url, {
           headers: {
