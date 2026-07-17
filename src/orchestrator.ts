@@ -6,7 +6,7 @@ import { FocusConfig } from './config.js';
 import { GoogleGenAI } from '@google/genai';
 import { fetchProfileActivity } from './profileFetchers.js';
 import { discordBotClient } from './discord/bot.js';
-import { ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 
 const prisma = new PrismaClient();
 
@@ -294,27 +294,18 @@ ${feedbackPromptContext}
       try {
         const discordUser = await discordBotClient.users.fetch(user.discordId);
 
-        // Build 0-10 rating select menu options
-        const getLabelDescription = (score: number): string => {
-          if (score >= 9) return 'Excellent / Critical';
-          if (score >= 7) return 'Good / Relevant';
-          if (score >= 5) return 'Ok / Fair';
-          if (score >= 3) return 'Boring / Soft Noise';
-          return 'Unrelated / Spam';
-        };
+        // Build thumbs up (10) and thumbs down (0) buttons
+        const thumbsUpButton = new ButtonBuilder()
+          .setCustomId(`rate_curation_10:${curationId}`)
+          .setLabel('👍 Useful')
+          .setStyle(ButtonStyle.Success);
 
-        const scoreOptions = Array.from({ length: 11 }, (_, i) => 
-          new StringSelectMenuOptionBuilder()
-            .setLabel(`${i}/10 - ${getLabelDescription(i)}`)
-            .setValue(String(i))
-        );
+        const thumbsDownButton = new ButtonBuilder()
+          .setCustomId(`rate_curation_0:${curationId}`)
+          .setLabel('👎 Noise')
+          .setStyle(ButtonStyle.Danger);
 
-        const selectMenu = new StringSelectMenuBuilder()
-          .setCustomId(`rate_curation_${curationId}`)
-          .setPlaceholder('Rate this recommendation...')
-          .addOptions(scoreOptions);
-
-        const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(thumbsUpButton, thumbsDownButton);
 
         await discordUser.send({
           embeds: [{
