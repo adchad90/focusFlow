@@ -202,10 +202,13 @@ export async function startDiscordBot(config: FocusConfig) {
           await interaction.reply({ content: `❌ An error occurred: ${e.message}`, ephemeral: true });
         }
       }
-    } else if (interaction.isStringSelectMenu()) {
+    } else if (interaction.isButton()) {
       if (interaction.customId.startsWith('rate_curation_')) {
-        const curationId = interaction.customId.replace('rate_curation_', '');
-        const score = parseInt(interaction.values[0], 10);
+        const customId = interaction.customId; // rate_curation_[score]:[curationId]
+        const prefixParts = customId.split(':');
+        const curationId = prefixParts[1];
+        const ratingPart = prefixParts[0].replace('rate_curation_', '');
+        const score = parseInt(ratingPart, 10);
         const discordUsername = interaction.user.tag;
 
         try {
@@ -222,8 +225,9 @@ export async function startDiscordBot(config: FocusConfig) {
             create: { curationId, userId: dbUser.id, rating: score }
           });
 
+          const feedbackStr = score === 10 ? '👍 (Useful)' : '👎 (Noise)';
           await interaction.reply({
-            content: `✅ Thanks! Rated this curation **${score}/10** to personalize your feed.`,
+            content: `✅ Thanks! Rated this curation **${feedbackStr}** to personalize your feed.`,
             ephemeral: true
           });
         } catch (e: any) {

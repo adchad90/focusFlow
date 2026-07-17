@@ -4,6 +4,18 @@ import { startMcpServer } from './mcp/server.js';
 import { startDiscordBot } from './discord/bot.js';
 import { startWebServer } from './server.js';
 
+async function launchConsumer(config: any) {
+  const apiKey = config.GEMINI_API_KEY;
+  if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY") {
+    console.warn("[FocusFlow CLI] Redis Consumer requires a valid GEMINI_API_KEY. Skipping consumer startup.");
+    return;
+  }
+  const { startConsumer } = await import('./mcp/consumer.js');
+  startConsumer(apiKey).catch(err => {
+    console.error("[FocusFlow CLI] Redis Consumer crashed:", err.message);
+  });
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const workspaceDir = process.cwd();
@@ -14,6 +26,17 @@ async function main() {
   if (args.includes('--server')) {
     console.log("[FocusFlow CLI] Starting Custom MCP Server...");
     await startMcpServer();
+    return;
+  }
+
+  if (args.includes('--consumer')) {
+    console.log("[FocusFlow CLI] Starting Redis Stream Consumer...");
+    try {
+      await startDiscordBot(config);
+    } catch (err: any) {
+      console.error("[FocusFlow CLI] Failed to initialize Discord Bot:", err.message);
+    }
+    await launchConsumer(config);
     return;
   }
 
@@ -30,10 +53,11 @@ async function main() {
     // Start Web Server (serves UI and API)
     startWebServer(config);
 
-    // If daemon mode is also requested, schedule curation
+    // If daemon mode is also requested, schedule curation and launch Redis consumer
     if (args.includes('--daemon')) {
       const hours = 6;
       console.log(`[FocusFlow CLI] Background curation cycle scheduled for every ${hours} hours.`);
+      await launchConsumer(config);
       const intervalMs = hours * 60 * 60 * 1000;
       setInterval(async () => {
         console.log(`\n[FocusFlow Daemon] Starting scheduled curation cycle...`);
@@ -64,6 +88,7 @@ async function main() {
   if (isDaemon) {
     const hours = 6;
     console.log(`[FocusFlow CLI] Starting daemon runner. Curation cycle scheduled for every ${hours} hours.`);
+    await launchConsumer(config);
     
     // Execute immediately on startup
     console.log("[FocusFlow CLI] Running initial startup curation cycle...");
